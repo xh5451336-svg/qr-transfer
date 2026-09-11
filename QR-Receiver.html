@@ -1,17 +1,1276 @@
-<!doctype html><meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1">
-<title>QR 文件接收器 V2</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,Arial;margin:0;background:#f3f4f6}.wrap{max-width:760px;margin:auto;padding:14px}.card{background:#fff;border-radius:18px;padding:18px;box-shadow:0 2px 12px #0001}button{padding:12px 18px;border:0;border-radius:10px;background:#111;color:#fff}video{width:100%;border-radius:14px;background:#000;margin-top:12px}.big{font-size:18px;font-weight:700}.small{color:#666;font-size:13px;line-height:1.6}progress{width:100%;height:18px}</style>
-<div class=wrap><div class=card><h2>QR 文件接收器 V2</h2><p>手机端。二维码通过屏幕光学传输，不连接内网电脑。</p><button id=b>开启摄像头</button><video id=v autoplay playsinline muted></video><div id=p class=big>等待扫描</div><progress id=pg value=0 max=100></progress><pre id=log></pre></div></div>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-<script>
-const $=x=>document.getElementById(x),cv=document.createElement('canvas'),ctx=cv.getContext('2d',{willReadFrequently:true});let stream,timer,files=new Map(),last='';
-function u24(a,p){return a[p]|a[p+1]<<8|a[p+2]<<16}
-function parse(a){if(a.length<18||a[0]!==0x51||a[1]!==0x52||a[2]!==1)return null;let type=a[3],p=4,il=a[p++];let id='';for(let i=0;i<il;i++)id+=String.fromCharCode(a[p++]);let seq=u24(a,p);p+=3,total=u24(a,p);p+=3;let dl=a[p++],data=a.slice(p,p+dl);p+=dl;if(type===1){let nl=a[p++],nb=a.slice(p,p+nl);p+=nl;let name=new TextDecoder().decode(nb);let dv=new DataView(new Uint8Array(a.slice(p,p+8)).buffer),size=Number(dv.getBigUint64(0,true));p+=8;let hash=[...a.slice(p,p+32)].map(x=>x.toString(16).padStart(2,'0')).join('');return{type,id,seq,total,name,size,hash,data}}return{type,id,seq,total,data}}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>QR 文件接收器 V3</title>
 
-async function finish(f){let all=new Uint8Array(f.size),p=0;for(let i=0;i<f.total;i++){let d=f.parts.get(i);if(!d)return;all.set(d,p);p+=d.length}let h=await crypto.subtle.digest('SHA-256',all);let hs=[...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('');if(hs!==f.hash){$('p').textContent='校验失败';return}let blob=new Blob([all]);let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f.name;a.textContent='点击保存：'+f.name;a.style.display='block';a.style.marginTop='16px';a.style.fontSize='18px';document.querySelector('.card').appendChild(a);$('p').textContent='接收完成 ✓'}
-async function handle(res){if(!res)return;let a=res.binaryData||[];let q=parse(a);if(!q)return;let f=files.get(q.id);
- if(q.type===1){f={id:q.id,name:q.name,size:q.size,hash:q.hash,total:q.total,parts:new Map()};files.set(q.id,f);$('log').textContent=`文件：${f.name}\n大小：${f.size} bytes\n分片：${f.total}`;return}
- if(!f)return;if(q.type===2){if(!f.parts.has(q.seq))f.parts.set(q.seq,q.data);$('p').textContent=`接收中：${f.parts.size}/${f.total}`;$('pg').value=f.parts.size/f.total*100;if(f.parts.size===f.total)await finish(f)}
+<style>
+*{box-sizing:border-box}
+
+body{
+    margin:0;
+    background:#f3f4f6;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+    color:#111
 }
-$('b').onclick=async()=>{if(typeof jsQR!=='function'){alert('jsQR 加载失败，请检查手机网络后刷新页面');return}try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});$('v').srcObject=stream;timer=setInterval(()=>{let v=$('v');if(v.readyState<2)return;cv.width=v.videoWidth;cv.height=v.videoHeight;ctx.drawImage(v,0,0,cv.width,cv.height);let im=ctx.getImageData(0,0,cv.width,cv.height);let r=jsQR(im.data,im.width,im.height,{inversionAttempts:'dontInvert'});if(r&&r.data!==last){last=r.data;try{handle(r)}catch(e){}}},100)}catch(e){alert('摄像头开启失败：'+e.message)}}
+
+.wrap{
+    max-width:760px;
+    margin:auto;
+    padding:14px
+}
+
+.card{
+    background:#fff;
+    border-radius:18px;
+    padding:18px;
+    box-shadow:0 2px 12px #0001
+}
+
+h2{
+    margin:0 0 8px
+}
+
+.tip{
+    color:#666;
+    font-size:14px;
+    line-height:1.6
+}
+
+button{
+    width:100%;
+    padding:14px 18px;
+    border:0;
+    border-radius:12px;
+    background:#111;
+    color:#fff;
+    font-size:17px;
+    font-weight:600
+}
+
+button:disabled{
+    opacity:.5
+}
+
+.videoWrap{
+    position:relative;
+    margin-top:12px;
+    background:#000;
+    border-radius:14px;
+    overflow:hidden
+}
+
+video{
+    display:block;
+    width:100%;
+    height:auto;
+    min-height:240px;
+    object-fit:cover;
+    background:#000
+}
+
+#box{
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:72%;
+    aspect-ratio:1/1;
+    transform:translate(-50%,-50%);
+    border:3px solid rgba(0,255,120,.9);
+    border-radius:16px;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.22)
+}
+
+.status{
+    font-size:19px;
+    font-weight:700;
+    margin-top:14px
+}
+
+.small{
+    color:#666;
+    font-size:13px;
+    margin-top:6px;
+    line-height:1.5
+}
+
+progress{
+    width:100%;
+    height:18px;
+    margin-top:8px
+}
+
+#log{
+    white-space:pre-wrap;
+    font-size:13px;
+    color:#444;
+    line-height:1.5
+}
+
+.ok{
+    color:#14863d
+}
+
+.bad{
+    color:#c62828
+}
+
+a.download{
+    display:block;
+    margin-top:16px;
+    padding:14px;
+    border-radius:12px;
+    background:#111;
+    color:#fff;
+    text-decoration:none;
+    text-align:center;
+    font-weight:600
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+    <div class="card">
+
+        <h2>QR 文件接收器 V3</h2>
+
+        <div class="tip">
+            手机对准电脑屏幕上的二维码。建议使用 iPhone Safari，
+            并让二维码完整进入绿色框。
+        </div>
+
+        <button id="start">开启摄像头</button>
+
+        <div class="videoWrap">
+            <video id="video" autoplay playsinline muted></video>
+            <div id="box"></div>
+        </div>
+
+        <div id="status" class="status">等待扫描</div>
+
+        <div id="detail" class="small">
+            正在等待二维码……
+        </div>
+
+        <progress id="progress" value="0" max="100"></progress>
+
+        <pre id="log"></pre>
+
+    </div>
+</div>
+
+
+<!-- jsQR：纯 JavaScript QR 解码器 -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+<script>
+"use strict";
+
+
+/* =========================
+   DOM
+========================= */
+
+const $ = id => document.getElementById(id);
+
+const video = $("video");
+const statusEl = $("status");
+const detailEl = $("detail");
+const progressEl = $("progress");
+const logEl = $("log");
+const startBtn = $("start");
+
+
+/* =========================
+   Canvas
+========================= */
+
+const canvas = document.createElement("canvas");
+
+const ctx = canvas.getContext("2d", {
+    willReadFrequently:true
+});
+
+
+/* =========================
+   状态
+========================= */
+
+let stream = null;
+let timer = null;
+let scanning = false;
+
+
+/*
+ * 文件集合
+ *
+ * id -> {
+ *   id,
+ *   name,
+ *   size,
+ *   hash,
+ *   total,
+ *   parts
+ * }
+ */
+const files = new Map();
+
+
+/*
+ * 防止同一二维码在连续扫描中
+ * 被重复处理
+ */
+let lastKey = "";
+let lastKeyAt = 0;
+
+
+/* =========================
+   工具函数
+========================= */
+
+
+/*
+ * 读取 3 字节小端整数
+ */
+function u24(a, p) {
+
+    return (
+        a[p] |
+        (a[p + 1] << 8) |
+        (a[p + 2] << 16)
+    ) >>> 0;
+
+}
+
+
+/* =========================
+   QR 数据解析
+========================= */
+
+function parseFrame(a) {
+
+    if (!a || a.length < 18) {
+        return null;
+    }
+
+
+    /*
+     * magic + protocol version
+     *
+     * 0x51 = Q
+     * 0x52 = R
+     * 1    = version
+     */
+    if (
+        a[0] !== 0x51 ||
+        a[1] !== 0x52 ||
+        a[2] !== 1
+    ) {
+        return null;
+    }
+
+
+    let p = 3;
+
+
+    /*
+     * 类型
+     *
+     * 1 = 文件头
+     * 2 = 文件数据
+     * 3 = 其他
+     */
+    const type = a[p++];
+
+
+    /*
+     * 文件 ID 长度
+     */
+    const idLen = a[p++];
+
+    if (
+        !idLen ||
+        p + idLen + 7 > a.length
+    ) {
+        return null;
+    }
+
+
+    /*
+     * 文件 ID
+     */
+    let id = "";
+
+    for (let i = 0; i < idLen; i++) {
+
+        id += String.fromCharCode(
+            a[p++]
+        );
+
+    }
+
+
+    /*
+     * 分片序号
+     */
+    const seq = u24(a, p);
+
+    p += 3;
+
+
+    /*
+     * 总分片数
+     */
+    const total = u24(a, p);
+
+    p += 3;
+
+
+    /*
+     * 数据长度
+     */
+    if (p >= a.length) {
+        return null;
+    }
+
+    const dataLen = a[p++];
+
+
+    if (p + dataLen > a.length) {
+        return null;
+    }
+
+
+    /*
+     * 数据
+     */
+    const data = a.slice(
+        p,
+        p + dataLen
+    );
+
+    p += dataLen;
+
+
+    /* =========================
+       文件头
+    ========================= */
+
+    if (type === 1) {
+
+        if (p >= a.length) {
+            return null;
+        }
+
+
+        /*
+         * 文件名长度
+         */
+        const nameLen = a[p++];
+
+
+        if (
+            p + nameLen + 8 + 32 > a.length
+        ) {
+            return null;
+        }
+
+
+        /*
+         * 文件名
+         */
+        const nameBytes = a.slice(
+            p,
+            p + nameLen
+        );
+
+        p += nameLen;
+
+
+        const name =
+            new TextDecoder().decode(
+                nameBytes
+            );
+
+
+        /*
+         * 文件大小
+         */
+        const sizeBytes =
+            new Uint8Array(
+                a.slice(p, p + 8)
+            );
+
+        const dv =
+            new DataView(
+                sizeBytes.buffer
+            );
+
+
+        const size =
+            Number(
+                dv.getBigUint64(
+                    0,
+                    true
+                )
+            );
+
+        p += 8;
+
+
+        /*
+         * SHA-256
+         */
+        const hash =
+            Array.from(
+                a.slice(p, p + 32)
+            )
+            .map(
+                x => x
+                    .toString(16)
+                    .padStart(2, "0")
+            )
+            .join("");
+
+
+        return {
+            type,
+            id,
+            seq,
+            total,
+            name,
+            size,
+            hash,
+            data
+        };
+
+    }
+
+
+    /* =========================
+       文件数据
+    ========================= */
+
+    if (type === 2) {
+
+        return {
+            type,
+            id,
+            seq,
+            total,
+            data
+        };
+
+    }
+
+
+    /* =========================
+       类型 3
+    ========================= */
+
+    if (type === 3) {
+
+        return {
+            type,
+            id,
+            seq,
+            total,
+            data
+        };
+
+    }
+
+
+    return null;
+
+}
+
+
+/* =========================
+   状态显示
+========================= */
+
+function setStatus(
+    text,
+    detail = ""
+) {
+
+    statusEl.textContent = text;
+
+    detailEl.textContent = detail;
+
+}
+
+
+/* =========================
+   文件完成
+========================= */
+
+async function finishFile(f) {
+
+    /*
+     * 分片还没收齐
+     */
+    if (
+        f.parts.size !== f.total
+    ) {
+        return;
+    }
+
+
+    /*
+     * 创建完整文件
+     */
+    const all =
+        new Uint8Array(f.size);
+
+    let pos = 0;
+
+
+    /*
+     * 按顺序拼接分片
+     */
+    for (
+        let i = 0;
+        i < f.total;
+        i++
+    ) {
+
+        const part =
+            f.parts.get(i);
+
+
+        if (!part) {
+            return;
+        }
+
+
+        all.set(
+            part,
+            pos
+        );
+
+        pos += part.length;
+
+    }
+
+
+    setStatus(
+        "正在校验文件…",
+        f.name
+    );
+
+
+    /*
+     * SHA-256
+     */
+    const digest =
+        await crypto.subtle.digest(
+            "SHA-256",
+            all
+        );
+
+
+    const hash =
+        Array.from(
+            new Uint8Array(digest)
+        )
+        .map(
+            x => x
+                .toString(16)
+                .padStart(2, "0")
+        )
+        .join("");
+
+
+    /*
+     * 校验失败
+     */
+    if (hash !== f.hash) {
+
+        statusEl.className =
+            "status bad";
+
+        setStatus(
+            "校验失败",
+            "二维码数据不完整或被干扰，请重新扫描"
+        );
+
+        return;
+    }
+
+
+    /*
+     * 创建 Blob
+     */
+    const blob =
+        new Blob([all]);
+
+
+    const url =
+        URL.createObjectURL(blob);
+
+
+    /*
+     * 删除旧下载按钮
+     */
+    const old =
+        document.querySelector(
+            ".download"
+        );
+
+    if (old) {
+        old.remove();
+    }
+
+
+    /*
+     * 创建下载按钮
+     */
+    const a =
+        document.createElement("a");
+
+
+    a.className =
+        "download";
+
+    a.href =
+        url;
+
+    a.download =
+        f.name || "received-file";
+
+    a.textContent =
+        "点击保存：" +
+        (f.name || "received-file");
+
+
+    document
+        .querySelector(".card")
+        .appendChild(a);
+
+
+    /*
+     * 完成
+     */
+    statusEl.className =
+        "status ok";
+
+
+    setStatus(
+        "接收完成 ✓",
+        `${f.name} · ${f.size} bytes`
+    );
+
+}
+
+
+/* =========================
+   处理二维码
+========================= */
+
+async function handleResult(result) {
+
+    if (!result) {
+        return;
+    }
+
+
+    /*
+     * jsQR 的二进制数据
+     */
+    const raw =
+        result.binaryData || [];
+
+
+    /*
+     * 解析协议
+     */
+    const q =
+        parseFrame(raw);
+
+
+    if (!q) {
+        return;
+    }
+
+
+    /*
+     * 当前帧唯一 Key
+     */
+    const key =
+        q.id +
+        ":" +
+        q.type +
+        ":" +
+        q.seq;
+
+
+    const now =
+        Date.now();
+
+
+    /*
+     * 防止同一帧连续重复触发
+     */
+    if (
+        key === lastKey &&
+        now - lastKeyAt < 350
+    ) {
+        return;
+    }
+
+
+    lastKey =
+        key;
+
+    lastKeyAt =
+        now;
+
+
+    /*
+     * 获取文件
+     */
+    let f =
+        files.get(q.id);
+
+
+    /* =========================
+       文件头
+    ========================= */
+
+    if (q.type === 1) {
+
+        f = {
+
+            id: q.id,
+
+            name:
+                q.name ||
+                "received-file",
+
+            size:
+                q.size,
+
+            hash:
+                q.hash,
+
+            total:
+                q.total,
+
+            parts:
+                new Map()
+
+        };
+
+
+        files.set(
+            q.id,
+            f
+        );
+
+
+        progressEl.value =
+            0;
+
+
+        logEl.textContent =
+            `文件：${f.name}\n` +
+            `大小：${f.size} bytes\n` +
+            `分片：${f.total}`;
+
+
+        setStatus(
+            "已识别文件",
+            `${f.name}，开始接收数据`
+        );
+
+
+        return;
+    }
+
+
+    /*
+     * 没有对应文件头
+     */
+    if (!f) {
+        return;
+    }
+
+
+    /* =========================
+       文件数据
+    ========================= */
+
+    if (q.type === 2) {
+
+        /*
+         * 防止重复保存
+         */
+        if (
+            !f.parts.has(q.seq)
+        ) {
+
+            f.parts.set(
+                q.seq,
+                q.data
+            );
+
+        }
+
+
+        /*
+         * 当前已经收到多少片
+         */
+        const got =
+            f.parts.size;
+
+
+        /*
+         * 百分比
+         */
+        const pct =
+            f.total
+                ? got / f.total * 100
+                : 0;
+
+
+        progressEl.value =
+            pct;
+
+
+        setStatus(
+            `接收中：${got}/${f.total}`,
+            `${Math.round(pct)}%`
+        );
+
+
+        /*
+         * 全部接收完成
+         */
+        if (
+            got === f.total
+        ) {
+
+            await finishFile(f);
+
+        }
+
+    }
+
+}
+
+
+/* =========================
+   QR 解码
+========================= */
+
+function tryDecode(
+    imageData,
+    width,
+    height
+) {
+
+    if (
+        typeof jsQR !== "function"
+    ) {
+        return null;
+    }
+
+
+    /*
+     * 第一次：
+     * 标准黑白二维码
+     */
+    let result =
+        jsQR(
+            imageData,
+            width,
+            height,
+            {
+                inversionAttempts:
+                    "dontInvert"
+            }
+        );
+
+
+    /*
+     * 第二次：
+     * 尝试反色
+     */
+    if (!result) {
+
+        result =
+            jsQR(
+                imageData,
+                width,
+                height,
+                {
+                    inversionAttempts:
+                        "attemptBoth"
+                }
+            );
+
+    }
+
+
+    return result;
+
+}
+
+
+/* =========================
+   扫描一帧
+========================= */
+
+function scanFrame() {
+
+    /*
+     * 摄像头还没有准备好
+     */
+    if (
+        !scanning ||
+        video.readyState < 2 ||
+        !video.videoWidth
+    ) {
+        return;
+    }
+
+
+    const w =
+        video.videoWidth;
+
+    const h =
+        video.videoHeight;
+
+
+    /* =========================
+       第一阶段：
+       扫描完整画面
+    ========================= */
+
+    canvas.width =
+        w;
+
+    canvas.height =
+        h;
+
+
+    ctx.drawImage(
+        video,
+        0,
+        0,
+        w,
+        h
+    );
+
+
+    let image =
+        ctx.getImageData(
+            0,
+            0,
+            w,
+            h
+        );
+
+
+    let result =
+        tryDecode(
+            image.data,
+            w,
+            h
+        );
+
+
+    /* =========================
+       第二阶段：
+       扫描中央区域
+    ========================= */
+
+    if (!result) {
+
+        /*
+         * 中央区域
+         */
+        const side =
+            Math.floor(
+                Math.min(w, h) * 0.82
+            );
+
+
+        const sx =
+            Math.floor(
+                (w - side) / 2
+            );
+
+
+        const sy =
+            Math.floor(
+                (h - side) / 2
+            );
+
+
+        /*
+         * 限制最大处理尺寸
+         */
+        const maxSide =
+            1000;
+
+
+        const scale =
+            Math.min(
+                1,
+                maxSide / side
+            );
+
+
+        const dw =
+            Math.max(
+                1,
+                Math.round(
+                    side * scale
+                )
+            );
+
+
+        const dh =
+            dw;
+
+
+        canvas.width =
+            dw;
+
+        canvas.height =
+            dh;
+
+
+        ctx.drawImage(
+            video,
+            sx,
+            sy,
+            side,
+            side,
+            0,
+            0,
+            dw,
+            dh
+        );
+
+
+        image =
+            ctx.getImageData(
+                0,
+                0,
+                dw,
+                dh
+            );
+
+
+        result =
+            tryDecode(
+                image.data,
+                dw,
+                dh
+            );
+
+    }
+
+
+    /* =========================
+       找到二维码
+    ========================= */
+
+    if (result) {
+
+        statusEl.className =
+            "status ok";
+
+
+        detailEl.textContent =
+            `已识别二维码 · Version ${result.version}`;
+
+
+        handleResult(result)
+            .catch(err => {
+
+                console.error(err);
+
+
+                statusEl.className =
+                    "status bad";
+
+
+                setStatus(
+                    "处理失败",
+                    err.message ||
+                    String(err)
+                );
+
+            });
+
+    }
+
+}
+
+
+/* =========================
+   开启摄像头
+========================= */
+
+startBtn.onclick =
+    async () => {
+
+        /*
+         * 已经扫描中
+         */
+        if (scanning) {
+            return;
+        }
+
+
+        /*
+         * 检查 jsQR
+         */
+        if (
+            typeof jsQR !== "function"
+        ) {
+
+            alert(
+                "jsQR 没有加载成功。请检查手机网络后刷新页面。"
+            );
+
+            return;
+        }
+
+
+        /*
+         * 检查摄像头 API
+         */
+        if (
+            !navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia
+        ) {
+
+            alert(
+                "当前浏览器不支持摄像头访问，请使用 iPhone Safari。"
+            );
+
+            return;
+        }
+
+
+        try {
+
+            /*
+             * 请求后置摄像头
+             */
+            stream =
+                await navigator.mediaDevices.getUserMedia({
+
+                    video: {
+
+                        facingMode: {
+                            ideal: "environment"
+                        },
+
+                        width: {
+                            ideal: 1920
+                        },
+
+                        height: {
+                            ideal: 1080
+                        }
+
+                    },
+
+                    audio: false
+
+                });
+
+
+            /*
+             * 绑定摄像头
+             */
+            video.srcObject =
+                stream;
+
+
+            await video.play();
+
+
+            /*
+             * 开始扫描
+             */
+            scanning =
+                true;
+
+
+            startBtn.disabled =
+                true;
+
+
+            startBtn.textContent =
+                "扫描中…";
+
+
+            setStatus(
+                "等待扫描",
+                "请把电脑二维码完整放入绿色框"
+            );
+
+
+            /*
+             * 每 200ms 扫描一次
+             */
+            timer =
+                setInterval(
+                    scanFrame,
+                    200
+                );
+
+        }
+        catch (e) {
+
+            alert(
+                "摄像头开启失败：" +
+                (e.message || e)
+            );
+
+        }
+
+    };
+
+
+/* =========================
+   页面关闭
+========================= */
+
+window.addEventListener(
+    "beforeunload",
+    () => {
+
+        if (timer) {
+            clearInterval(timer);
+        }
+
+
+        if (stream) {
+
+            stream
+                .getTracks()
+                .forEach(
+                    t => t.stop()
+                );
+
+        }
+
+    }
+);
+
 </script>
+
+</body>
+</html>
