@@ -2,900 +2,982 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>QR 文件接收器 V4</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+
+<title>QR 文件接收器 V6.1</title>
 
 <style>
 *{box-sizing:border-box}
+
 body{
     margin:0;
-    background:#f3f4f6;
-    color:#111;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif
+    background:#111;
+    color:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    padding:12px
 }
+
 .wrap{
     max-width:760px;
-    margin:auto;
-    padding:14px
+    margin:auto
 }
-.card{
-    background:#fff;
-    border-radius:18px;
-    padding:18px;
-    box-shadow:0 2px 12px #0001
-}
-h2{
-    margin:0 0 8px
-}
-.tip{
-    color:#666;
-    font-size:14px;
-    line-height:1.6
-}
-button{
-    width:100%;
-    padding:14px;
-    border:0;
+
+.status{
+    background:#202020;
     border-radius:12px;
-    background:#111;
-    color:#fff;
+    padding:14px;
     font-size:17px;
-    font-weight:600
+    line-height:1.6;
+    margin-bottom:10px
 }
-.videoWrap{
+
+.green{
+    color:#2ecc71
+}
+
+.red{
+    color:#ff5c5c
+}
+
+.small{
+    color:#aaa;
+    font-size:13px
+}
+
+.info{
+    background:#202020;
+    border-radius:12px;
+    padding:12px;
+    line-height:1.7;
+    margin-bottom:10px;
+    word-break:break-all
+}
+
+.scan{
     position:relative;
-    margin-top:12px;
     background:#000;
-    border-radius:14px;
+    border-radius:12px;
     overflow:hidden
 }
-video{
+
+.scan video{
     display:block;
     width:100%;
-    height:auto;
-    min-height:240px;
-    object-fit:cover;
-    background:#000
+    height:auto
 }
-#box{
+
+.box{
     position:absolute;
-    left:50%;
-    top:50%;
-    width:78%;
-    aspect-ratio:1;
-    border:3px solid #00ff78;
+    left:12%;
+    right:12%;
+    top:18%;
+    bottom:18%;
+    border:3px solid #2ecc71;
     border-radius:16px;
-    transform:translate(-50%,-50%);
-    box-shadow:0 0 0 9999px rgba(0,0,0,.2)
+    pointer-events:none
 }
-.status{
-    font-size:19px;
-    font-weight:700;
-    margin-top:14px
-}
-.small{
-    color:#666;
-    font-size:13px;
-    margin-top:6px;
-    line-height:1.5
-}
-progress{
+
+.download{
+    display:none;
+    margin-top:10px;
     width:100%;
-    height:18px;
-    margin-top:8px
-}
-#log{
-    white-space:pre-wrap;
-    font-size:13px;
-    color:#444;
-    line-height:1.5
-}
-.ok{
-    color:#14863d
-}
-.bad{
-    color:#c62828
-}
-a.download{
-    display:block;
-    margin-top:16px;
-    padding:14px;
-    border-radius:12px;
-    background:#111;
+    padding:13px;
+    border:0;
+    border-radius:10px;
+    background:#1677ff;
     color:#fff;
-    text-decoration:none;
-    text-align:center;
-    font-weight:600
+    font-size:18px
 }
 </style>
-</head>
-
-<body>
-<div class="wrap">
-<div class="card">
-
-<h2>QR 文件接收器 V4</h2>
-
-<div class="tip">
-请把电脑上的二维码完整放进绿色框。建议手机距离屏幕 30～60cm。
-</div>
-
-<button id="start">开启摄像头</button>
-
-<div class="videoWrap">
-    <video id="video" autoplay playsinline muted></video>
-    <div id="box"></div>
-</div>
-
-<div id="status" class="status">等待扫描</div>
-
-<div id="detail" class="small">
-等待二维码……
-</div>
-
-<progress id="progress" value="0" max="100"></progress>
-
-<pre id="log"></pre>
-
-</div>
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
+</head>
+
+<body>
+
+<div class="wrap">
+
+    <div id="status" class="status">
+        正在启动摄像头…
+    </div>
+
+    <div class="info">
+        文件：<span id="name">-</span><br>
+        大小：<span id="size">-</span><br>
+        进度：<span id="progress">0/0</span>
+        （<span id="pct">0%</span>）<br>
+        状态：<span id="state">IDLE</span><br>
+        最近帧：<span id="last">-</span>
+    </div>
+
+    <div class="scan">
+        <video id="video" autoplay muted playsinline></video>
+        <div class="box"></div>
+    </div>
+
+    <button id="download" class="download">
+        保存文件
+    </button>
+
+    <div class="small" style="margin-top:8px">
+        绿色框内尽量对准电脑二维码；Receiver 会对整帧和中央区域分别尝试解码，并自动忽略重复帧。
+    </div>
+
+</div>
+
 <script>
-'use strict';
+
+const S = {
+    IDLE:'IDLE',
+    WAIT_META:'WAIT_META',
+    RECEIVING:'RECEIVING',
+    VERIFYING:'VERIFYING',
+    DONE:'DONE',
+    FAIL:'FAIL'
+};
+
+let state = S.IDLE;
+
+let fileId = null;
+let total = 0;
+let meta = null;
+
+let chunks = new Map();
+
+let busy = false;
+let stream = null;
+let doneUrl = null;
 
 const $ = id => document.getElementById(id);
 
 const video = $('video');
-const statusEl = $('status');
-const detailEl = $('detail');
-const progressEl = $('progress');
-const logEl = $('log');
-const startBtn = $('start');
 
 const canvas = document.createElement('canvas');
-const ctx = canvas.getContext('2d', {
-    willReadFrequently: true
+
+const ctx = canvas.getContext('2d',{
+    willReadFrequently:true
 });
 
-let stream = null;
-let timer = null;
-let scanning = false;
 
-let lastKey = '';
-let lastKeyAt = 0;
+function setStatus(t,c=''){
 
-const files = new Map();
+    $('status').className = 'status ' + c;
 
+    $('status').textContent = t;
 
-/* =========================
- * 读取 24 位小端整数
- * ========================= */
-function u24(a, p) {
-    return (
-        a[p] |
-        a[p + 1] << 8 |
-        a[p + 2] << 16
-    ) >>> 0;
+    $('state').textContent = state;
 }
 
 
-/* =========================
- * 解析二维码二进制数据
- * ========================= */
-function parse(a) {
+function b64u(s){
 
-    if (
-        !a ||
-        a.length < 20 ||
-        a[0] !== 0x51 ||
-        a[1] !== 0x52 ||
-        a[2] !== 2
-    ) {
-        return null;
+    const bin = atob(s);
+
+    const u = new Uint8Array(bin.length);
+
+    for(let i=0;i<bin.length;i++){
+        u[i] = bin.charCodeAt(i);
     }
 
-    let p = 3;
-
-    const type = a[p++];
-    const idLen = a[p++];
-
-    if (
-        idLen !== 8 ||
-        p + idLen + 7 > a.length
-    ) {
-        return null;
-    }
-
-    let id = '';
-
-    for (let i = 0; i < idLen; i++) {
-        id += String.fromCharCode(a[p++]);
-    }
-
-    const seq = u24(a, p);
-    p += 3;
-
-    const total = u24(a, p);
-    p += 3;
-
-    if (p >= a.length) {
-        return null;
-    }
-
-    const dl = a[p++];
-
-    if (p + dl > a.length) {
-        return null;
-    }
-
-    const data = a.slice(p, p + dl);
-    p += dl;
-
-
-    /* 文件元数据 */
-    if (type === 1) {
-
-        if (p >= a.length) {
-            return null;
-        }
-
-        const nl = a[p++];
-
-        if (p + nl + 8 > a.length) {
-            return null;
-        }
-
-        const name =
-            new TextDecoder().decode(
-                a.slice(p, p + nl)
-            );
-
-        p += nl;
-
-        const size =
-            Number(
-                new DataView(
-                    new Uint8Array(
-                        a.slice(p, p + 8)
-                    ).buffer
-                ).getBigUint64(0, true)
-            );
-
-        return {
-            type,
-            id,
-            seq,
-            total,
-            data,
-            name,
-            size
-        };
-    }
-
-
-    /* SHA-256 校验信息 */
-    if (type === 4) {
-
-        if (p + 32 > a.length) {
-            return null;
-        }
-
-        const hash =
-            Array.from(
-                a.slice(p, p + 32)
-            )
-            .map(
-                x => x.toString(16).padStart(2, '0')
-            )
-            .join('');
-
-        return {
-            type,
-            id,
-            seq,
-            total,
-            data,
-            hash
-        };
-    }
-
-
-    /* 文件数据分片 */
-    if (type === 2) {
-
-        return {
-            type,
-            id,
-            seq,
-            total,
-            data
-        };
-    }
-
-    return null;
+    return u;
 }
 
 
-/* =========================
- * 修改状态
- * ========================= */
-function setStatus(t, d = '') {
+function hexToU8(h){
 
-    statusEl.textContent = t;
-    detailEl.textContent = d;
+    if(!/^[0-9a-fA-F]+$/.test(h) || h.length % 2){
+        return null;
+    }
+
+    const u = new Uint8Array(h.length / 2);
+
+    for(let i=0;i<u.length;i++){
+
+        u[i] = parseInt(
+            h.slice(i*2,i*2+2),
+            16
+        );
+
+    }
+
+    return u;
 }
 
 
-/* =========================
- * 文件接收完成处理
- * ========================= */
-async function finish(f) {
+function eq(a,b){
 
-    if (
-        !f.meta ||
-        !f.hash ||
-        f.parts.size !== f.total
-    ) {
+    if(!a || !b || a.length !== b.length){
+        return false;
+    }
+
+    for(let i=0;i<a.length;i++){
+
+        if(a[i] !== b[i]){
+            return false;
+        }
+
+    }
+
+    return true;
+}
+
+
+async function sha(u){
+
+    return new Uint8Array(
+        await crypto.subtle.digest(
+            'SHA-256',
+            u
+        )
+    );
+
+}
+
+
+function reset(id){
+
+    fileId = id;
+
+    total = 0;
+
+    meta = null;
+
+    chunks.clear();
+
+    $('name').textContent = '-';
+
+    $('size').textContent = '-';
+
+    $('progress').textContent = '0/0';
+
+    $('pct').textContent = '0%';
+
+    $('last').textContent = '-';
+
+    $('download').style.display = 'none';
+
+    if(doneUrl){
+
+        URL.revokeObjectURL(doneUrl);
+
+        doneUrl = null;
+
+    }
+
+    state = S.WAIT_META;
+
+    setStatus(
+        '收到新文件，等待元信息…'
+    );
+}
+
+
+function parse(s){
+
+    if(
+        typeof s !== 'string' ||
+        !s.startsWith('QRF6|')
+    ){
+        return null;
+    }
+
+    const p = s.split('|');
+
+    if(p.length !== 6){
+        return null;
+    }
+
+    const id = p[1];
+
+    const type = p[2];
+
+    const seq = Number(p[3]);
+
+    const tot = Number(p[4]);
+
+    const payload = p[5];
+
+    if(
+        !/^[0-9a-f]{8}$/i.test(id) ||
+        !/^[MD]$/.test(type) ||
+        !Number.isInteger(seq) ||
+        !Number.isInteger(tot) ||
+        tot < 0 ||
+        tot > 10000000 ||
+        seq < 0
+    ){
+        return null;
+    }
+
+    return {
+        id,
+        type,
+        seq,
+        tot,
+        payload
+    };
+}
+
+
+async function handle(s){
+
+    const q = parse(s);
+
+    if(!q){
         return;
     }
 
 
-    /* 合并所有分片 */
-    const all = new Uint8Array(f.size);
+    if(fileId === null){
 
-    let pos = 0;
+        reset(q.id);
 
-    for (let i = 0; i < f.total; i++) {
+    }
 
-        const part = f.parts.get(i);
 
-        if (!part) {
+    if(q.id !== fileId){
+
+        reset(q.id);
+
+    }
+
+
+    if(total !== 0 && q.tot !== total){
+
+        return;
+
+    }
+
+
+    /*
+     * 元信息帧
+     *
+     * QRF6|fileId|M|0|total|payload
+     */
+
+    if(q.type === 'M'){
+
+        if(q.seq !== 0){
             return;
         }
 
-        all.set(part, pos);
-        pos += part.length;
-    }
-
-
-    setStatus(
-        '正在校验文件…',
-        f.name
-    );
-
-
-    /* SHA-256 */
-    const digest =
-        await crypto.subtle.digest(
-            'SHA-256',
-            all
-        );
-
-    const hs =
-        Array.from(
-            new Uint8Array(digest)
-        )
-        .map(
-            x => x.toString(16).padStart(2, '0')
-        )
-        .join('');
-
-
-    /* 校验失败 */
-    if (hs !== f.hash) {
-
-        statusEl.className = 'status bad';
-
-        setStatus(
-            '校验失败',
-            '数据不完整，请重新扫描'
-        );
-
-        return;
-    }
-
-
-    /* 删除旧下载按钮 */
-    const old =
-        document.querySelector('.download');
-
-    if (old) {
-        old.remove();
-    }
-
-
-    /* 创建下载 */
-    const a =
-        document.createElement('a');
-
-    a.className = 'download';
-
-    a.href =
-        URL.createObjectURL(
-            new Blob([all])
-        );
-
-    a.download =
-        f.name || 'received-file';
-
-    a.textContent =
-        '点击保存：' +
-        (f.name || 'received-file');
-
-
-    document
-        .querySelector('.card')
-        .appendChild(a);
-
-
-    statusEl.className = 'status ok';
-
-    setStatus(
-        '接收完成 ✓',
-        `${f.name} · ${f.size} bytes`
-    );
-}
-
-
-/* =========================
- * 处理二维码
- * ========================= */
-async function handle(r) {
-
-    const q =
-        parse(
-            r.binaryData || []
-        );
-
-    if (!q) {
-        return;
-    }
-
-
-    /* 防止短时间重复处理同一个二维码 */
-    const key =
-        q.id +
-        ':' +
-        q.type +
-        ':' +
-        q.seq;
-
-    const now = Date.now();
-
-    if (
-        key === lastKey &&
-        now - lastKeyAt < 500
-    ) {
-        return;
-    }
-
-    lastKey = key;
-    lastKeyAt = now;
-
-
-    /* 获取文件 */
-    let f = files.get(q.id);
-
-    if (!f) {
-
-        f = {
-            id: q.id,
-            total: q.total,
-            meta: null,
-            hash: null,
-            parts: new Map()
-        };
-
-        files.set(q.id, f);
-    }
-
-
-    /* 分片总数不一致 */
-    if (q.total !== f.total) {
-        return;
-    }
-
-
-    /* 文件元数据 */
-    if (q.type === 1) {
-
-        f.meta = {
-            name: q.name || 'received-file',
-            size: q.size
-        };
-
-        progressEl.value = 0;
-
-        logEl.textContent =
-            `文件：${f.meta.name}\n` +
-            `大小：${f.meta.size} bytes\n` +
-            `分片：${f.total}`;
-
-        setStatus(
-            '已识别文件',
-            '正在接收数据'
-        );
-
-        return;
-    }
-
-
-    /* SHA-256 */
-    if (q.type === 4) {
-
-        f.hash = q.hash;
-
-        setStatus(
-            '已收到校验信息',
-            f.hash.slice(0, 16) + '…'
-        );
-
-        await finish(f);
-
-        return;
-    }
-
-
-    /* 文件数据 */
-    if (q.type === 2) {
-
-        if (!f.parts.has(q.seq)) {
-
-            f.parts.set(
-                q.seq,
-                q.data
-            );
+        if(q.tot < 0){
+            return;
         }
 
-        const got =
-            f.parts.size;
+        let obj;
 
-        const pct =
-            f.total
-                ? got / f.total * 100
-                : 0;
+        try{
 
-        progressEl.value = pct;
+            obj = JSON.parse(
+                new TextDecoder().decode(
+                    b64u(q.payload)
+                )
+            );
+
+        }catch(e){
+
+            return;
+
+        }
+
+
+        const size = Number(obj.s);
+
+        const hash = hexToU8(obj.h);
+
+        let name;
+
+        try{
+
+            name = new TextDecoder().decode(
+                b64u(obj.n)
+            );
+
+        }catch(e){
+
+            return;
+
+        }
+
+
+        if(
+            !Number.isSafeInteger(size) ||
+            size < 0 ||
+            !hash ||
+            hash.length !== 32 ||
+            !name
+        ){
+
+            return;
+
+        }
+
+
+        total = q.tot;
+
+        meta = {
+            size,
+            hash,
+            name
+        };
+
+
+        $('name').textContent = name;
+
+        $('size').textContent =
+            size.toLocaleString() + ' bytes';
+
+
+        state =
+            total === 0
+                ? S.VERIFYING
+                : S.RECEIVING;
+
 
         setStatus(
-            `接收中：${got}/${f.total}`,
-            `${Math.round(pct)}%`
+            total === 0
+                ? '正在校验空文件…'
+                : '收到元信息，接收数据…'
         );
 
-        await finish(f);
+
+        /*
+         * 空文件特殊处理
+         */
+
+        if(total === 0){
+
+            await finish();
+
+        }
+
+        return;
     }
+
+
+    /*
+     * 数据帧
+     *
+     * QRF6|fileId|D|seq|total|payload
+     */
+
+    if(q.type === 'D'){
+
+        if(
+            total === 0 ||
+            q.tot !== total ||
+            q.seq >= total
+        ){
+
+            return;
+
+        }
+
+
+        /*
+         * 如果还没收到元信息，
+         * 当前数据帧先不参与重组。
+         *
+         * Sender 会在每轮开始重复发送 Metadata，
+         * 因此后续仍然可以正常接收。
+         */
+
+        if(!meta){
+
+            state = S.WAIT_META;
+
+        }
+
+
+        /*
+         * Base64 → Uint8Array
+         */
+
+        if(!chunks.has(q.seq)){
+
+            let u;
+
+            try{
+
+                u = b64u(q.payload);
+
+            }catch(e){
+
+                return;
+
+            }
+
+            chunks.set(q.seq,u);
+
+        }
+
+
+        $('last').textContent =
+            `${q.seq+1}/${total}`;
+
+
+        const got = chunks.size;
+
+
+        $('progress').textContent =
+            `${got}/${total}`;
+
+
+        $('pct').textContent =
+            (got / total * 100).toFixed(1) + '%';
+
+
+        setStatus(
+            meta
+                ? `接收中：${got}/${total}`
+                : `已收到数据：${got}/${total}，等待元信息…`
+        );
+
+
+        /*
+         * 只有：
+         *
+         * 1. 元信息存在
+         * 2. 所有数据帧都收到
+         *
+         * 才进入最终校验。
+         */
+
+        if(meta && got === total){
+
+            await finish();
+
+        }
+
+    }
+
 }
 
 
-/* =========================
- * 二维码解码
- * ========================= */
-function decode(image, w, h) {
+async function finish(){
 
-    let r =
+    if(
+        busy ||
+        !meta
+    ){
+
+        return;
+
+    }
+
+    busy = true;
+
+    state = S.VERIFYING;
+
+    setStatus(
+        '数据已收齐，正在校验…'
+    );
+
+
+    try{
+
+        /*
+         * 第一遍：
+         * 检查所有序号是否完整
+         * 同时计算实际字节数
+         */
+
+        let totalBytes = 0;
+
+
+        for(
+            let i=0;
+            i<total;
+            i++
+        ){
+
+            if(!chunks.has(i)){
+
+                throw new Error(
+                    '缺少第 ' + (i+1) + ' 个数据帧'
+                );
+
+            }
+
+
+            totalBytes +=
+                chunks.get(i).length;
+
+        }
+
+
+        /*
+         * 检查文件大小
+         */
+
+        if(totalBytes !== meta.size){
+
+            throw new Error(
+                `大小不匹配：收到 ${totalBytes}，应为 ${meta.size}`
+            );
+
+        }
+
+
+        /*
+         * 按顺序重新组合文件
+         */
+
+        const all =
+            new Uint8Array(meta.size);
+
+
+        let off = 0;
+
+
+        for(
+            let i=0;
+            i<total;
+            i++
+        ){
+
+            const c = chunks.get(i);
+
+            all.set(c,off);
+
+            off += c.length;
+
+        }
+
+
+        /*
+         * SHA-256 校验
+         */
+
+        const h = await sha(all);
+
+
+        if(!eq(h,meta.hash)){
+
+            throw new Error(
+                'SHA-256 不匹配'
+            );
+
+        }
+
+
+        /*
+         * 创建文件
+         */
+
+        const blob =
+            new Blob(
+                [all],
+                {
+                    type:'application/octet-stream'
+                }
+            );
+
+
+        doneUrl =
+            URL.createObjectURL(blob);
+
+
+        $('download').onclick = () => {
+
+            const a =
+                document.createElement('a');
+
+            a.href = doneUrl;
+
+            a.download = meta.name;
+
+            document.body.appendChild(a);
+
+            a.click();
+
+            a.remove();
+
+        };
+
+
+        $('download').style.display =
+            'block';
+
+
+        $('progress').textContent =
+            `${total}/${total}`;
+
+
+        $('pct').textContent =
+            '100%';
+
+
+        state = S.DONE;
+
+
+        setStatus(
+            '✅ 接收完成，SHA-256 校验通过',
+            'green'
+        );
+
+
+    }catch(e){
+
+        state = S.FAIL;
+
+        setStatus(
+            '❌ ' + e.message,
+            'red'
+        );
+
+    }finally{
+
+        busy = false;
+
+    }
+
+}
+
+
+/*
+ * QR 解码
+ */
+
+function tryScan(data,w,h){
+
+    const r =
         jsQR(
-            image,
+            data,
             w,
             h,
             {
-                inversionAttempts:
-                    'dontInvert'
+                inversionAttempts:'attemptBoth'
             }
         );
 
-    if (!r) {
-
-        r =
-            jsQR(
-                image,
-                w,
-                h,
-                {
-                    inversionAttempts:
-                        'attemptBoth'
-                }
-            );
-    }
-
-    return r;
+    return r && r.data
+        ? r.data
+        : null;
 }
 
 
-/* =========================
- * Canvas 解码
- * ========================= */
-function decodeCanvas(
-    source,
-    sx,
-    sy,
-    sw,
-    sh,
-    dw
-) {
+/*
+ * 摄像头扫描
+ *
+ * 先扫描完整画面
+ * 再扫描中央区域
+ */
 
-    canvas.width = dw;
-    canvas.height = dw;
+function scan(){
+
+    if(video.readyState < 2){
+
+        requestAnimationFrame(scan);
+
+        return;
+
+    }
+
+
+    let w = video.videoWidth;
+
+    let h = video.videoHeight;
+
+
+    if(!w || !h){
+
+        requestAnimationFrame(scan);
+
+        return;
+
+    }
+
+
+    /*
+     * 限制处理宽度，
+     * 避免 iPhone 上 CPU 占用过高。
+     */
+
+    const maxW = 1280;
+
+
+    let scale =
+        Math.min(
+            1,
+            maxW / w
+        );
+
+
+    w = Math.floor(w * scale);
+
+    h = Math.floor(h * scale);
+
+
+    canvas.width = w;
+
+    canvas.height = h;
+
 
     ctx.drawImage(
-        source,
-        sx,
-        sy,
-        sw,
-        sh,
+        video,
         0,
         0,
-        dw,
-        dw
+        w,
+        h
     );
 
 
-    let im =
+    /*
+     * 方案一：
+     * 扫描完整画面
+     */
+
+    let img =
         ctx.getImageData(
             0,
             0,
-            dw,
-            dw
+            w,
+            h
         );
 
 
-    let r =
-        decode(
-            im.data,
-            dw,
-            dw
+    let s =
+        tryScan(
+            img.data,
+            w,
+            h
         );
-
-    if (r) {
-        return r;
-    }
 
 
     /*
-     * 轻度二值化：
-     * 应对显示器拍摄时的灰雾/反光
+     * 方案二：
+     * 扫描中央区域
+     *
+     * 对准绿色框即可。
      */
-    const d = im.data;
 
-    for (
-        let i = 0;
-        i < d.length;
-        i += 4
-    ) {
+    if(!s){
+
+        const cw =
+            Math.floor(w * .78);
+
+        const ch =
+            Math.floor(h * .78);
+
+
+        const x =
+            Math.floor(
+                (w - cw) / 2
+            );
+
 
         const y =
-            (
-                d[i] * 299 +
-                d[i + 1] * 587 +
-                d[i + 2] * 114
-            ) / 1000;
+            Math.floor(
+                (h - ch) / 2
+            );
 
-        const v =
-            y > 145
-                ? 255
-                : 0;
 
-        d[i] =
-            d[i + 1] =
-            d[i + 2] =
-            v;
+        const crop =
+            ctx.getImageData(
+                x,
+                y,
+                cw,
+                ch
+            );
 
-        d[i + 3] = 255;
+
+        s =
+            tryScan(
+                crop.data,
+                cw,
+                ch
+            );
+
     }
-
-    return decode(
-        d,
-        dw,
-        dw
-    );
-}
-
-
-/* =========================
- * 扫描
- * ========================= */
-function scan() {
-
-    if (
-        !scanning ||
-        video.readyState < 2 ||
-        !video.videoWidth
-    ) {
-        return;
-    }
-
-
-    const w =
-        video.videoWidth;
-
-    const h =
-        video.videoHeight;
 
 
     /*
-     * 先扫描整张画面
+     * DONE 后不再继续处理二维码
      */
-    let r =
-        decodeCanvas(
-            video,
-            0,
-            0,
-            w,
-            h,
-            Math.min(
-                1200,
-                Math.max(
-                    700,
-                    Math.min(w, h)
-                )
-            )
+
+    if(
+        s &&
+        state !== S.DONE &&
+        !busy
+    ){
+
+        handle(s).catch(
+            e => console.error(e)
         );
 
-
-    /*
-     * 如果失败，再扫描中心区域
-     */
-    if (!r) {
-
-        const side =
-            Math.floor(
-                Math.min(w, h) * .84
-            );
-
-        const sx =
-            Math.floor(
-                (w - side) / 2
-            );
-
-        const sy =
-            Math.floor(
-                (h - side) / 2
-            );
-
-
-        r =
-            decodeCanvas(
-                video,
-                sx,
-                sy,
-                side,
-                side,
-                Math.min(
-                    1200,
-                    Math.max(
-                        700,
-                        side
-                    )
-                )
-            );
     }
 
 
-    /* 成功识别 */
-    if (r) {
+    requestAnimationFrame(scan);
 
-        statusEl.className =
-            'status ok';
-
-        detailEl.textContent =
-            `已识别二维码 · Version ${r.version}`;
-
-
-        handle(r)
-            .catch(e => {
-
-                statusEl.className =
-                    'status bad';
-
-                setStatus(
-                    '处理失败',
-                    e.message || String(e)
-                );
-
-            });
-    }
 }
 
 
-/* =========================
- * 开启摄像头
- * ========================= */
-startBtn.onclick = async () => {
+/*
+ * 启动摄像头
+ */
 
-    if (scanning) {
-        return;
-    }
+async function start(){
 
-
-    /* 检查 jsQR */
-    if (typeof jsQR !== 'function') {
-
-        alert(
-            'jsQR 加载失败，请确认手机有网络并刷新页面'
-        );
-
-        return;
-    }
-
-
-    try {
+    try{
 
         stream =
-            await navigator.mediaDevices
-                .getUserMedia({
-                    video: {
-                        facingMode: {
-                            ideal: 'environment'
+            await navigator.mediaDevices.getUserMedia(
+                {
+                    video:{
+                        facingMode:{
+                            ideal:'environment'
                         },
-                        width: {
-                            ideal: 1920
+
+                        width:{
+                            ideal:1920
                         },
-                        height: {
-                            ideal: 1080
+
+                        height:{
+                            ideal:1080
                         }
-                    },
-                    audio: false
-                });
+                    }
+                }
+            );
 
 
-        video.srcObject =
-            stream;
-
-        await video.play();
+        video.srcObject = stream;
 
 
-        scanning = true;
-
-        startBtn.disabled = true;
-
-        startBtn.textContent =
-            '扫描中…';
+        state = S.WAIT_META;
 
 
         setStatus(
-            '等待扫描',
-            '请把二维码完整放入绿色框'
+            '扫描中…'
         );
 
 
-        timer =
-            setInterval(
-                scan,
-                250
-            );
+        scan();
 
-    } catch (e) {
 
-        alert(
-            '摄像头开启失败：' +
-            (e.message || e)
+    }catch(e){
+
+        state = S.FAIL;
+
+        setStatus(
+            '摄像头启动失败：' +
+            e.message,
+            'red'
         );
+
     }
-};
+
+}
 
 
-/* =========================
- * 页面关闭时释放摄像头
- * ========================= */
 window.addEventListener(
-    'beforeunload',
-    () => {
-
-        if (timer) {
-            clearInterval(timer);
-        }
-
-        if (stream) {
-
-            stream
-                .getTracks()
-                .forEach(
-                    t => t.stop()
-                );
-        }
-    }
+    'load',
+    start
 );
+
 </script>
 
 </body>
